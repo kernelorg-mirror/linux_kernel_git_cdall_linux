@@ -173,7 +173,9 @@ void vgic_v3_clear_lr(struct kvm_vcpu *vcpu, int lr)
 
 void vgic_v3_set_vmcr(struct kvm_vcpu *vcpu, struct vgic_vmcr *vmcrp)
 {
+	struct vgic_v3_cpu_if *cpu_if = &vcpu->arch.vgic_cpu.vgic_v3;
 	u32 vmcr;
+	int cpu;
 
 	/*
 	 * Ignore the FIQen bit, because GIC emulation always implies
@@ -188,12 +190,34 @@ void vgic_v3_set_vmcr(struct kvm_vcpu *vcpu, struct vgic_vmcr *vmcrp)
 	vmcr |= (vmcrp->grpen0 << ICH_VMCR_ENG0_SHIFT) & ICH_VMCR_ENG0_MASK;
 	vmcr |= (vmcrp->grpen1 << ICH_VMCR_ENG1_SHIFT) & ICH_VMCR_ENG1_MASK;
 
-	vcpu->arch.vgic_cpu.vgic_v3.vgic_vmcr = vmcr;
+	cpu_if->vgic_vmcr = vmcr;
+
+	cpu = get_cpu();
+	if (vcpu->cpu == cpu)
+		/*
+		 * We have run vcpu_load which means the VMCR
+		 * has already been flushed to the CPU; flush it again.
+		 */
+		kvm_call_hyp(__vgic_v3_write_vmcr, vmcr);
+	put_cpu();
 }
 
 void vgic_v3_get_vmcr(struct kvm_vcpu *vcpu, struct vgic_vmcr *vmcrp)
 {
-	u32 vmcr = vcpu->arch.vgic_cpu.vgic_v3.vgic_vmcr;
+	struct vgic_v3_cpu_if *cpu_if = &vcpu->arch.vgic_cpu.vgic_v3;
+	int cpu;
+	u32 vmcr;
+
+	cpu = get_cpu();
+	if (vcpu->cpu == cpu)
+		/*
+		 * We have run vcpu_load and which means the VMCR
+		 * has already been flushed to the CPU; sync it back.
+		 */
+		cpu_if->vgic_vmcr = kvm_call_hyp(__vgic_v3_read_vmcr);
+	put_cpu();
+
+	vmcr = cpu_if->vgic_vmcr;
 
 	/*
 	 * Ignore the FIQen bit, because GIC emulation always implies
@@ -382,4 +406,18 @@ int vgic_v3_probe(const struct gic_kvm_info *info)
 	kvm_vgic_global_state.max_gic_vcpus = VGIC_V3_MAX_CPUS;
 
 	return 0;
+}
+
+void vgic_v3_load(struct kvm_vcpu *vcpu)
+{
+	struct vgic_v3_cpu_if *cpu_if = &vcpu->arch.vgic_cpu.vgic_v3;
+
+	kvm_call_hyp(__vgic_v3_write_vmcr, cpu_if->vgic_vmcr);
+}
+
+void vgic_v3_put(struct kvm_vcpu *vcpu)
+{
+	struct vgic_v3_cpu_if *cpu_if = &vcpu->arch.vgic_cpu.vgic_v3;
+
+	cpu_if->vgic_vmcr = kvm_call_hyp(__vgic_v3_read_vmcr);
 }
