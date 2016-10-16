@@ -172,7 +172,7 @@ int __hyp_text __kvm_vcpu_run(struct kvm_vcpu *vcpu)
 	__activate_vm(vcpu);
 
 	__vgic_restore_state(vcpu);
-	__timer_restore_state(vcpu);
+	__timer_enable_traps(vcpu);
 
 	__sysreg_restore_state(guest_ctxt);
 	__banked_restore_state(guest_ctxt);
@@ -189,7 +189,8 @@ again:
 
 	__banked_save_state(guest_ctxt);
 	__sysreg_save_state(guest_ctxt);
-	__timer_save_state(vcpu);
+	__timer_disable_traps(vcpu);
+
 	__vgic_save_state(vcpu);
 
 	__deactivate_traps(vcpu);

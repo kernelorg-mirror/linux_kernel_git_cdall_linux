@@ -347,10 +347,13 @@ void kvm_arch_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 	vcpu->arch.host_cpu_context = this_cpu_ptr(kvm_host_cpu_state);
 
 	kvm_arm_set_running_vcpu(vcpu);
+	kvm_timer_vcpu_load(vcpu);
 }
 
 void kvm_arch_vcpu_put(struct kvm_vcpu *vcpu)
 {
+	kvm_timer_vcpu_put(vcpu);
+
 	/*
 	 * The arch-generic KVM code expects the cpu field of a vcpu to be -1
 	 * if the vcpu is no longer assigned to a cpu.  This is used for the
@@ -359,7 +362,6 @@ void kvm_arch_vcpu_put(struct kvm_vcpu *vcpu)
 	vcpu->cpu = -1;
 
 	kvm_arm_set_running_vcpu(NULL);
-	kvm_timer_vcpu_put(vcpu);
 }
 
 int kvm_arch_vcpu_ioctl_get_mpstate(struct kvm_vcpu *vcpu,
@@ -645,7 +647,6 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 			vcpu->arch.power_off || vcpu->arch.pause) {
 			local_irq_enable();
 			kvm_pmu_sync_hwstate(vcpu);
-			kvm_timer_sync_hwstate(vcpu);
 			kvm_vgic_sync_hwstate(vcpu);
 			preempt_enable();
 			continue;
@@ -669,6 +670,12 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		 *************************************************************/
 
 		kvm_arm_clear_debug(vcpu);
+
+		/*
+		 * Sync timer state before enabling interrupts as the sync
+		 * must not collide with a timer interrupt.
+		 */
+		kvm_timer_sync_hwstate(vcpu);
 
 		/*
 		 * We may have taken a host interrupt in HYP mode (ie
@@ -699,7 +706,6 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		 * interrupt line.
 		 */
 		kvm_pmu_sync_hwstate(vcpu);
-		kvm_timer_sync_hwstate(vcpu);
 
 		kvm_vgic_sync_hwstate(vcpu);
 

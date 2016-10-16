@@ -50,11 +50,12 @@ struct arch_timer_cpu {
 	/* Timer IRQ */
 	struct kvm_irq_level		irq;
 
-	/* Active IRQ state caching */
-	bool				active_cleared_last;
 
 	/* Is the timer enabled */
 	bool			enabled;
+
+	/* Is the timer state loaded on the hardware timer */
+	bool			loaded;
 };
 
 int kvm_timer_hyp_init(void);
@@ -74,7 +75,9 @@ bool kvm_timer_should_fire(struct kvm_vcpu *vcpu);
 void kvm_timer_schedule(struct kvm_vcpu *vcpu);
 void kvm_timer_unschedule(struct kvm_vcpu *vcpu);
 
+void kvm_timer_vcpu_load(struct kvm_vcpu *vcpu);
 void kvm_timer_vcpu_put(struct kvm_vcpu *vcpu);
 
 void kvm_timer_init_vhe(void);
+
 #endif
