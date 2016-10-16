@@ -627,10 +627,11 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		 */
 		preempt_disable();
 		kvm_pmu_flush_hwstate(vcpu);
-		kvm_timer_flush_hwstate(vcpu);
-		kvm_vgic_flush_hwstate(vcpu);
 
 		local_irq_disable();
+
+		kvm_timer_flush_hwstate(vcpu);
+		kvm_vgic_flush_hwstate(vcpu);
 
 		/*
 		 * Re-check atomic conditions
