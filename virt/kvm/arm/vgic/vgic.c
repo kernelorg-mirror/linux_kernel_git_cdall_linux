@@ -527,12 +527,12 @@ retry:
 	spin_unlock(&vgic_cpu->ap_list_lock);
 }
 
-static inline void vgic_process_maintenance_interrupt(struct kvm_vcpu *vcpu)
+static inline void vgic_clear_uie(struct kvm_vcpu *vcpu)
 {
 	if (kvm_vgic_global_state.type == VGIC_V2)
-		vgic_v2_process_maintenance(vcpu);
+		vgic_v2_clear_uie(vcpu);
 	else
-		vgic_v3_process_maintenance(vcpu);
+		vgic_v3_clear_uie(vcpu);
 }
 
 static inline void vgic_fold_lr_state(struct kvm_vcpu *vcpu)
@@ -642,7 +642,7 @@ void kvm_vgic_sync_hwstate(struct kvm_vcpu *vcpu)
 	if (unlikely(!vgic_initialized(vcpu->kvm)))
 		return;
 
-	vgic_process_maintenance_interrupt(vcpu);
+	vgic_clear_uie(vcpu);
 	vgic_fold_lr_state(vcpu);
 	vgic_prune_ap_list(vcpu);
 
