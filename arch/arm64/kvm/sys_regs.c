@@ -2089,7 +2089,7 @@ static bool handle_vae2(struct kvm_vcpu *vcpu, struct sys_reg_params *p,
 		       const struct sys_reg_desc *r)
 {
 	struct kvm_s2_mmu *mmu = &vcpu->kvm->arch.mmu;
-	u64 vttbr = kvm_get_vttbr(&mmu->el2_vmid, mmu);
+	u64 vttbr = kvm_get_vttbr(mmu); /* TODO: Use vEL2 MMU */
 	int sys_encoding = sys_insn(p->Op0, p->Op1, p->CRn, p->CRm, p->Op2);
 
 	/*
@@ -2150,8 +2150,8 @@ static bool handle_vmalls12e1is(struct kvm_vcpu *vcpu, struct sys_reg_params *p,
 		 * current VMID is for the host OS in the VM; we don't manage
 		 * shadow stage 2 page tables for it.
 		 */
-		mmu = &vcpu->kvm->arch.mmu;
-		vttbr = kvm_get_vttbr(&mmu->vmid, mmu);
+		mmu = &vcpu->kvm->arch.mmu; /* TODO: Get right MMU struct */
+		vttbr = kvm_get_vttbr(mmu);
 		kvm_call_hyp(__kvm_tlb_flush_vmid, vttbr);
 	}
 	spin_unlock(&vcpu->kvm->mmu_lock);
@@ -2181,7 +2181,7 @@ static bool handle_ipas2e1is(struct kvm_vcpu *vcpu, struct sys_reg_params *p,
 		 * shadow stage 2 page tables for it.
 		 */
 		mmu = &vcpu->kvm->arch.mmu;
-		vttbr = kvm_get_vttbr(&mmu->vmid, mmu);
+		vttbr = kvm_get_vttbr(mmu); /* TODO: Get right MMU struct */
 		kvm_call_hyp(__kvm_tlb_flush_vmid_ipa, vttbr, p->regval);
 	}
 	spin_unlock(&vcpu->kvm->mmu_lock);
@@ -2214,7 +2214,7 @@ static bool handle_tlbi_el1(struct kvm_vcpu *vcpu, struct sys_reg_params *p,
 		mmu = &nested_mmu->mmu;
 	}
 
-	vttbr = kvm_get_vttbr(&mmu->vmid, mmu);
+	vttbr = kvm_get_vttbr(mmu);
 	kvm_call_hyp(__kvm_tlb_el1_instr, vttbr, p->regval, sys_encoding);
 
 	return true;

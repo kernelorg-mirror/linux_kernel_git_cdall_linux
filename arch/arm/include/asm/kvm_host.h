@@ -62,7 +62,18 @@ struct kvm_vmid {
 	u32    vmid;
 };
 
+struct kvm_s2_mmu {
+	struct kvm_vmid vmid;
+
+	/* Stage-2 page table */
+	pgd_t *pgd;
+	phys_addr_t pgd_phys;
+};
+
 struct kvm_arch {
+	/* Stage 2 paging state for the VM */
+	struct kvm_s2_mmu mmu;
+
 	/* The last vcpu id that ran on each physical CPU */
 	int __percpu *last_vcpu_ran;
 
@@ -70,13 +81,6 @@ struct kvm_arch {
 	 * Anything that is not used directly from assembly code goes
 	 * here.
 	 */
-
-	/* The VMID generation used for the virt. memory system */
-	struct kvm_vmid vmid;
-
-	/* Stage-2 page table */
-	pgd_t *pgd;
-	phys_addr_t pgd_phys;
 
 	/* Interrupt controller */
 	struct vgic_dist	vgic;
@@ -191,6 +195,9 @@ struct kvm_vcpu_arch {
 
 	/* Detect first run of a vcpu */
 	bool has_run_once;
+
+	/* Stage 2 paging state used by the hardware on next switch */
+	struct kvm_s2_mmu *hw_mmu;
 };
 
 struct kvm_vm_stat {

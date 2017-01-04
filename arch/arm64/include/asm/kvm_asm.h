@@ -54,6 +54,7 @@
 
 struct kvm;
 struct kvm_vcpu;
+struct kvm_s2_mmu;
 
 extern char __kvm_hyp_init[];
 extern char __kvm_hyp_init_end[];
@@ -61,6 +62,10 @@ extern char __kvm_hyp_init_end[];
 extern char __kvm_hyp_vector[];
 
 extern void __kvm_flush_vm_context(void);
+extern void __kvm_tlb_flush_vmid_ipa(u64 vttbr, phys_addr_t ipa);
+extern void __kvm_tlb_flush_vmid(u64 vttbr);
+extern void __kvm_tlb_flush_local_all(void);
+extern void __kvm_tlb_flush_local_vmid(u64 vttbr);
 extern void __kvm_tlb_vae2(u64 vttbr, u64 va, u64 sys_encoding);
 extern void __kvm_tlb_el1_instr(u64 vttbr, u64 val, u64 sys_encoding);
 
