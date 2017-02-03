@@ -410,14 +410,21 @@ int kvm_timer_vcpu_reset(struct kvm_vcpu *vcpu,
 }
 
 /* Make the updates of cntvoff for all vtimer contexts atomic */
-static void update_vtimer_cntvoff(struct kvm *kvm, u64 cntvoff)
+static void update_vtimer_cntvoff(struct kvm_vcpu *vcpu, u64 cntvoff)
 {
 	int i;
-	struct kvm_vcpu *vcpu;
+	struct kvm *kvm = vcpu->kvm;
+	struct kvm_vcpu *tmp;
 
 	mutex_lock(&kvm->lock);
-	kvm_for_each_vcpu(i, vcpu, kvm)
-		vcpu_vtimer(vcpu)->cntvoff = cntvoff;
+	kvm_for_each_vcpu(i, tmp, kvm)
+		vcpu_vtimer(tmp)->cntvoff = cntvoff;
+
+	/*
+	 * When called from the vcpu create path, the CPU being created is not
+	 * included in the loop above, so we just set it here as well.
+	 */
+	vcpu_vtimer(vcpu)->cntvoff = cntvoff;
 	mutex_unlock(&kvm->lock);
 }
 
@@ -426,7 +433,7 @@ void kvm_timer_vcpu_init(struct kvm_vcpu *vcpu)
 	struct arch_timer_cpu *timer = &vcpu->arch.timer_cpu;
 
 	/* Synchronize cntvoff across all vtimers of a VM. */
-	update_vtimer_cntvoff(vcpu->kvm, kvm_phys_timer_read());
+	update_vtimer_cntvoff(vcpu, kvm_phys_timer_read());
 	vcpu_ptimer(vcpu)->cntvoff = 0;
 
 	INIT_WORK(&timer->expired, kvm_timer_inject_irq_work);
@@ -448,7 +455,7 @@ int kvm_arm_timer_set_reg(struct kvm_vcpu *vcpu, u64 regid, u64 value)
 		vtimer->cnt_ctl = value;
 		break;
 	case KVM_REG_ARM_TIMER_CNT:
-		update_vtimer_cntvoff(vcpu->kvm, kvm_phys_timer_read() - value);
+		update_vtimer_cntvoff(vcpu, kvm_phys_timer_read() - value);
 		break;
 	case KVM_REG_ARM_TIMER_CVAL:
 		vtimer->cnt_cval = value;
