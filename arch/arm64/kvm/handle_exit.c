@@ -234,3 +234,14 @@ int handle_exit(struct kvm_vcpu *vcpu, struct kvm_run *run,
 		return 0;
 	}
 }
+
+void handle_external_irq(struct kvm_vcpu *vcpu)
+{
+	u64 isr = read_sysreg(isr_el1);
+	struct pt_regs *regs = (struct pt_regs *)vcpu_gp_regs(vcpu);
+
+	if (!(isr & ISR_EL1_I))
+		return;
+
+	handle_arch_irq(regs);
+}

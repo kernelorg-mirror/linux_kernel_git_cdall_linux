@@ -683,6 +683,8 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		 * the effect of taking the interrupt again, in SVC
 		 * mode this time.
 		 */
+		handle_external_irq(vcpu);
+
 		local_irq_enable();
 
 		/*

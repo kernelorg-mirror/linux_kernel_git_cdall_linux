@@ -42,6 +42,8 @@ DECLARE_PER_CPU(unsigned long [IRQ_STACK_SIZE/sizeof(long)], irq_stack);
 
 extern void set_handle_irq(void (*handle_irq)(struct pt_regs *));
 
+extern void (*handle_arch_irq)(struct pt_regs *);
+
 static inline int nr_legacy_irqs(void)
 {
 	return 0;

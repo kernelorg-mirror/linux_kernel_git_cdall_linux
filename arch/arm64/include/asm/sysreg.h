@@ -224,6 +224,10 @@
 #define ID_ISAR5_AES_SHIFT		4
 #define ID_ISAR5_SEVL_SHIFT		0
 
+#define ISR_EL1_A			(1 << 8)
+#define ISR_EL1_I			(1 << 7)
+#define ISR_EL1_F			(1 << 6)
+
 #define MVFR0_FPROUND_SHIFT		28
 #define MVFR0_FPSHVEC_SHIFT		24
 #define MVFR0_FPSQRT_SHIFT		20
