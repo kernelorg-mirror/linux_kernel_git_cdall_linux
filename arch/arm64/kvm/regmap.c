@@ -111,7 +111,7 @@ static const unsigned long vcpu_reg_offsets[VCPU_NR_MODES][16] = {
  */
 unsigned long *vcpu_reg32(const struct kvm_vcpu *vcpu, u8 reg_num)
 {
-	unsigned long *reg_array = (unsigned long *)&vcpu->arch.ctxt.gp_regs.regs;
+	unsigned long *reg_array = (unsigned long *)&vcpu_gp_regs(vcpu)->regs;
 	unsigned long mode = *vcpu_cpsr(vcpu) & COMPAT_PSR_MODE_MASK;
 
 	switch (mode) {
@@ -164,5 +164,5 @@ unsigned long *vcpu_spsr32(const struct kvm_vcpu *vcpu)
 		BUG();
 	}
 
-	return (unsigned long *)&vcpu_gp_regs(vcpu)->spsr[mode];
+	return (unsigned long *)&vcpu_ctxt(vcpu)->spsr[mode];
 }

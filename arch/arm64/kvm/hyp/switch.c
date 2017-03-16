@@ -268,9 +268,9 @@ static void __hyp_text __skip_instr(struct kvm_vcpu *vcpu)
 	*vcpu_pc(vcpu) = read_sysreg_el2(elr);
 
 	if (vcpu_mode_is_32bit(vcpu)) {
-		vcpu->arch.ctxt.gp_regs.regs.pstate = read_sysreg_el2(spsr);
+		vcpu->arch.ctxt.regs.user_regs.pstate = read_sysreg_el2(spsr);
 		kvm_skip_instr32(vcpu, kvm_vcpu_trap_il_is32bit(vcpu));
-		write_sysreg_el2(vcpu->arch.ctxt.gp_regs.regs.pstate, spsr);
+		write_sysreg_el2(vcpu->arch.ctxt.regs.user_regs.pstate, spsr);
 	} else {
 		*vcpu_pc(vcpu) += 4;
 	}
@@ -363,8 +363,8 @@ again:
 	__sysreg_restore_host_state(host_ctxt);
 
 	if (fp_enabled) {
-		__fpsimd_save_state(&guest_ctxt->gp_regs.fp_regs);
-		__fpsimd_restore_state(&host_ctxt->gp_regs.fp_regs);
+		__fpsimd_save_state(&guest_ctxt->fp_regs);
+		__fpsimd_restore_state(&host_ctxt->fp_regs);
 	}
 
 	__debug_save_state(vcpu, kern_hyp_va(vcpu->arch.debug_ptr), guest_ctxt);

@@ -129,9 +129,9 @@ int main(void)
   BLANK();
 #ifdef CONFIG_KVM_ARM_HOST
   DEFINE(VCPU_CONTEXT,		offsetof(struct kvm_vcpu, arch.ctxt));
-  DEFINE(CPU_GP_REGS,		offsetof(struct kvm_cpu_context, gp_regs));
-  DEFINE(CPU_USER_PT_REGS,	offsetof(struct kvm_regs, regs));
-  DEFINE(CPU_FP_REGS,		offsetof(struct kvm_regs, fp_regs));
+  DEFINE(CPU_GP_REGS,		offsetof(struct kvm_cpu_context, regs));
+  DEFINE(CPU_USER_PT_REGS,	offsetof(struct kvm_cpu_context, regs.user_regs));
+  DEFINE(CPU_FP_REGS,		offsetof(struct kvm_cpu_context, fp_regs));
   DEFINE(VCPU_FPEXC32_EL2,	offsetof(struct kvm_vcpu, arch.ctxt.sys_regs[FPEXC32_EL2]));
   DEFINE(VCPU_HOST_CONTEXT,	offsetof(struct kvm_vcpu, arch.host_cpu_context));
 #endif

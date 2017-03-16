@@ -185,7 +185,15 @@ enum vcpu_sysreg {
 #define NR_COPRO_REGS	(NR_SYS_REGS * 2)
 
 struct kvm_cpu_context {
-	struct kvm_regs	gp_regs;
+	struct pt_regs	regs;		/* only user_regs are used, but we
+					 * include the full pt_regs to be able
+					 * to pass the guest exception context
+					 * directly to arch_handle_irq(). */
+	u64		sp_el1;
+	u64		elr_el1;
+	u64		spsr[KVM_NR_SPSR];
+	struct user_fpsimd_state fp_regs;
+
 	union {
 		u64 sys_regs[NR_SYS_REGS];
 		u32 copro[NR_COPRO_REGS];
@@ -277,7 +285,8 @@ struct kvm_vcpu_arch {
 	bool has_run_once;
 };
 
-#define vcpu_gp_regs(v)		(&(v)->arch.ctxt.gp_regs)
+#define vcpu_ctxt(v)		(&(v)->arch.ctxt)
+#define vcpu_gp_regs(v)		(&(v)->arch.ctxt.regs.user_regs)
 #define vcpu_sys_reg(v,r)	((v)->arch.ctxt.sys_regs[(r)])
 /*
  * CP14 and CP15 live in the same array, as they are backed by the
