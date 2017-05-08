@@ -2390,7 +2390,7 @@ static int vgic_its_set_attr(struct kvm_device *dev,
 
 		its->vgic_its_base = addr;
 
-		return 0;
+		return vgic_register_its_iodev(dev->kvm, its);
 	}
 	case KVM_DEV_ARM_VGIC_GRP_CTRL: {
 		const struct vgic_its_abi *abi = vgic_its_get_abi(its);
@@ -2466,31 +2466,4 @@ int kvm_vgic_register_its_device(void)
 {
 	return kvm_register_device_ops(&kvm_arm_vgic_its_ops,
 				       KVM_DEV_TYPE_ARM_VGIC_ITS);
-}
-
-/*
- * Registers all ITSes with the kvm_io_bus framework.
- * To follow the existing VGIC initialization sequence, this has to be
- * done as late as possible, just before the first VCPU runs.
- */
-int vgic_register_its_iodevs(struct kvm *kvm)
-{
-	struct kvm_device *dev;
-	int ret = 0;
-
-	list_for_each_entry(dev, &kvm->devices, vm_node) {
-		if (dev->ops != &kvm_arm_vgic_its_ops)
-			continue;
-
-		ret = vgic_register_its_iodev(kvm, dev->private);
-		if (ret)
-			return ret;
-		/*
-		 * We don't need to care about tearing down previously
-		 * registered ITSes, as the kvm_io_bus framework removes
-		 * them for us if the VM gets destroyed.
-		 */
-	}
-
-	return ret;
 }
