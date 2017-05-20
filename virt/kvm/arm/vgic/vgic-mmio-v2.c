@@ -226,7 +226,13 @@ static unsigned long vgic_mmio_read_vcpuif(struct kvm_vcpu *vcpu,
 
 	switch (addr & 0xff) {
 	case GIC_CPU_CTRL:
-		val = vmcr.ctlr;
+		val = vmcr.grpen0 << __ffs(GIC_CPU_CTRL_EnableGrp0);
+		val |= vmcr.grpen1 << __ffs(GIC_CPU_CTRL_EnableGrp1);
+		val |= vmcr.ackctl << __ffs(GIC_CPU_CTRL_AckCtl);
+		val |= vmcr.fiqen << __ffs(GIC_CPU_CTRL_FIQEn);
+		val |= vmcr.cbpr << __ffs(GIC_CPU_CTRL_CBPR);
+		val |= vmcr.eoim << __ffs(GIC_CPU_CTRL_EOImodeNS);
+
 		break;
 	case GIC_CPU_PRIMASK:
 		/*
@@ -267,7 +273,13 @@ static void vgic_mmio_write_vcpuif(struct kvm_vcpu *vcpu,
 
 	switch (addr & 0xff) {
 	case GIC_CPU_CTRL:
-		vmcr.ctlr = val;
+		vmcr.grpen0 = !!(val & GIC_CPU_CTRL_EnableGrp0);
+		vmcr.grpen1 = !!(val & GIC_CPU_CTRL_EnableGrp1);
+		vmcr.ackctl = !!(val & GIC_CPU_CTRL_AckCtl);
+		vmcr.fiqen = !!(val & GIC_CPU_CTRL_FIQEn);
+		vmcr.cbpr = !!(val & GIC_CPU_CTRL_CBPR);
+		vmcr.eoim = !!(val & GIC_CPU_CTRL_EOImodeNS);
+
 		break;
 	case GIC_CPU_PRIMASK:
 		/*
