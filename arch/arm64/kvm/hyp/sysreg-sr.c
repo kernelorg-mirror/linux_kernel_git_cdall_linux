@@ -237,8 +237,10 @@ void kvm_vcpu_load_sysregs(struct kvm_vcpu *vcpu)
 	struct kvm_cpu_context *host_ctxt = vcpu->arch.host_cpu_context;
 	struct kvm_cpu_context *guest_ctxt = &vcpu->arch.ctxt;
 
-	if (!has_vhe())
+	if (!has_vhe()) {
+		kvm_call_hyp(__activate_traps_nvhe_load, vcpu);
 		return;
+	}
 
 	__sysreg_save_user_state(host_ctxt);
 
@@ -253,6 +255,8 @@ void kvm_vcpu_load_sysregs(struct kvm_vcpu *vcpu)
 	__sysreg_restore_el1_state(guest_ctxt);
 
 	vcpu->arch.sysregs_loaded_on_cpu = true;
+
+	activate_traps_vhe_load(vcpu);
 }
 
 /**
@@ -282,8 +286,12 @@ void kvm_vcpu_put_sysregs(struct kvm_vcpu *vcpu)
 		vcpu->arch.guest_vfp_loaded = 0;
 	}
 
-	if (!has_vhe())
+	if (!has_vhe()) {
+		kvm_call_hyp(__deactivate_traps_nvhe_put);
 		return;
+	}
+
+	deactivate_traps_vhe_put();
 
 	__sysreg_save_el1_state(guest_ctxt);
 	__sysreg_save_user_state(guest_ctxt);
