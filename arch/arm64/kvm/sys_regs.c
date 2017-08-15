@@ -1468,6 +1468,11 @@ static bool forward_at_traps(struct kvm_vcpu *vcpu)
 	return forward_traps(vcpu, HCR_AT);
 }
 
+static bool forward_ttlb_traps(struct kvm_vcpu *vcpu)
+{
+	return forward_traps(vcpu, HCR_TTLB);
+}
+
 /* This function is to support the recursive nested virtualization */
 static bool forward_nv1_traps(struct kvm_vcpu *vcpu, struct sys_reg_params *p)
 {
@@ -1988,6 +1993,172 @@ static bool handle_s12w(struct kvm_vcpu *vcpu, struct sys_reg_params *p,
 	return handle_s12(vcpu, p, r, true);
 }
 
+static bool handle_alle2(struct kvm_vcpu *vcpu, struct sys_reg_params *p,
+			 const struct sys_reg_desc *r)
+{
+	struct kvm_s2_mmu *mmu = &vcpu->kvm->arch.mmu;
+	u64 vttbr = kvm_get_vttbr(&mmu->el2_vmid, mmu);
+
+	/*
+	 * To emulate invalidating all EL2 regime stage 1 TLB entries,
+	 * invalidate EL1&0 regime stage 1 TLB entries with the virtual EL2's
+	 * VMID.
+	 */
+	kvm_call_hyp(__kvm_tlb_flush_local_vmid, vttbr);
+	return true;
+}
+
+static bool handle_alle2is(struct kvm_vcpu *vcpu, struct sys_reg_params *p,
+			   const struct sys_reg_desc *r)
+{
+	struct kvm_s2_mmu *mmu = &vcpu->kvm->arch.mmu;
+	u64 vttbr = kvm_get_vttbr(&mmu->el2_vmid, mmu);
+
+	/*
+	 * To emulate invalidating all EL2 regime stage 1 TLB entries for all
+	 * PEs, executing TLBI VMALLE1IS is enough. But reuse the existing
+	 * interface for the simplicity; invalidating stage 2 entries doesn't
+	 * affect the correctness.
+	 */
+	kvm_call_hyp(__kvm_tlb_flush_vmid, vttbr);
+	return true;
+}
+
+static bool handle_vae2(struct kvm_vcpu *vcpu, struct sys_reg_params *p,
+		       const struct sys_reg_desc *r)
+{
+	struct kvm_s2_mmu *mmu = &vcpu->kvm->arch.mmu;
+	u64 vttbr = kvm_get_vttbr(&mmu->el2_vmid, mmu);
+	int sys_encoding = sys_insn(p->Op0, p->Op1, p->CRn, p->CRm, p->Op2);
+
+	/*
+	 * Based on the same principle as TLBI ALLE2 instruction emulation, we
+	 * emulate TLBI VAE2* instructions by executing corresponding TLBI VAE1*
+	 * instructions with the virtual EL2's VMID assigned by the host
+	 * hypervisor.
+	 */
+	kvm_call_hyp(__kvm_tlb_vae2, vttbr, p->regval, sys_encoding);
+	return true;
+}
+
+static bool handle_alle1is(struct kvm_vcpu *vcpu, struct sys_reg_params *p,
+			   const struct sys_reg_desc *r)
+{
+	struct kvm_s2_mmu *mmu = &vcpu->kvm->arch.mmu;
+	u64 vttbr = kvm_get_vttbr(&mmu->vmid, mmu);
+
+	spin_lock(&vcpu->kvm->mmu_lock);
+
+	/*
+	 * Clear all mappings in the shadow page tables and invalidate the stage
+	 * 1 and 2 TLB entries via kvm_tlb_flush_vmid_ipa().
+	 */
+	kvm_nested_s2_clear(vcpu->kvm);
+
+	if (vcpu->kvm->arch.mmu.vmid.vmid_gen) {
+		/*
+		 * Invalidate the stage 1 and 2 TLB entries for the host OS
+		 * in a VM only if there is one.
+		 */
+		kvm_call_hyp(__kvm_tlb_flush_vmid, vttbr);
+	}
+
+	spin_unlock(&vcpu->kvm->mmu_lock);
+
+	return true;
+}
+
+static bool handle_vmalls12e1is(struct kvm_vcpu *vcpu, struct sys_reg_params *p,
+				const struct sys_reg_desc *r)
+{
+	u64 vttbr;
+	struct kvm_s2_mmu *mmu;
+	bool ret;
+
+	spin_lock(&vcpu->kvm->mmu_lock);
+	/*
+	 * Clear mappings in the shadow page tables and invalidate the stage
+	 * 1 and 2 TLB entries via kvm_tlb_flush_vmid_ipa() for the current
+	 * VMID.
+	 */
+	ret = kvm_nested_s2_clear_curr_vmid(vcpu, 0, KVM_PHYS_SIZE);
+
+	if (!ret) {
+		/*
+		 * Invalidate TLB entries explicitly for the case that the
+		 * current VMID is for the host OS in the VM; we don't manage
+		 * shadow stage 2 page tables for it.
+		 */
+		mmu = &vcpu->kvm->arch.mmu;
+		vttbr = kvm_get_vttbr(&mmu->vmid, mmu);
+		kvm_call_hyp(__kvm_tlb_flush_vmid, vttbr);
+	}
+	spin_unlock(&vcpu->kvm->mmu_lock);
+
+	return true;
+}
+
+static bool handle_ipas2e1is(struct kvm_vcpu *vcpu, struct sys_reg_params *p,
+			     const struct sys_reg_desc *r)
+{
+	u64 vttbr;
+	struct kvm_s2_mmu *mmu;
+	bool ret;
+
+	spin_lock(&vcpu->kvm->mmu_lock);
+	/*
+	 * Clear a mapping in the shadow page tables and invalidate the stage
+	 * 2 TLB entries via kvm_tlb_flush_vmid_ipa() for the current
+	 * VMID and the given ipa.
+	 */
+	ret = kvm_nested_s2_clear_curr_vmid(vcpu, p->regval, PAGE_SIZE);
+
+	if (!ret) {
+		/*
+		 * Invalidate TLB entries explicitly for the case that the
+		 * current VMID is for the host OS in the VM; we don't manage
+		 * shadow stage 2 page tables for it.
+		 */
+		mmu = &vcpu->kvm->arch.mmu;
+		vttbr = kvm_get_vttbr(&mmu->vmid, mmu);
+		kvm_call_hyp(__kvm_tlb_flush_vmid_ipa, vttbr, p->regval);
+	}
+	spin_unlock(&vcpu->kvm->mmu_lock);
+
+	return true;
+}
+
+static bool handle_tlbi_el1(struct kvm_vcpu *vcpu, struct sys_reg_params *p,
+			    const struct sys_reg_desc *r)
+{
+	u64 virtual_vttbr = vcpu_read_sys_reg(vcpu, VTTBR_EL2);
+	u64 vttbr;
+	struct kvm_nested_s2_mmu *nested_mmu;
+	struct kvm_s2_mmu *mmu = &vcpu->kvm->arch.mmu;
+	int sys_encoding = sys_insn(p->Op0, p->Op1, p->CRn, p->CRm, p->Op2);
+
+	nested_mmu = lookup_nested_mmu(vcpu, virtual_vttbr);
+	if (!nested_mmu) {
+		/*
+		 * If we can't find a shadow VMID, it is either the virtual
+		 * VMID is for the host OS or the nested VM having the virtual
+		 * VMID is never executed. (Note that we create a showdow VMID
+		 * when entering a VM.) For the former, we can flush TLB
+		 * entries belonging to the host OS in a VM. For the latter, we
+		 * don't have to do anything. Since we can't differentiate
+		 * between those cases, just do what we can do for the former.
+		 */
+		mmu = &vcpu->kvm->arch.mmu;
+	} else {
+		mmu = &nested_mmu->mmu;
+	}
+
+	vttbr = kvm_get_vttbr(&mmu->vmid, mmu);
+	kvm_call_hyp(__kvm_tlb_el1_instr, vttbr, p->regval, sys_encoding);
+
+	return true;
+}
+
 /*
  * AT instruction emulation
  *
@@ -2064,12 +2235,40 @@ static struct sys_reg_desc sys_insn_descs[] = {
 	SYS_INSN_TO_DESC(AT_S1E0W, handle_s1e01, forward_at_traps),
 	SYS_INSN_TO_DESC(AT_S1E1RP, handle_s1e01, forward_at_traps),
 	SYS_INSN_TO_DESC(AT_S1E1WP, handle_s1e01, forward_at_traps),
+
+	SYS_INSN_TO_DESC(TLBI_VMALLE1IS, handle_tlbi_el1, forward_ttlb_traps),
+	SYS_INSN_TO_DESC(TLBI_VAE1IS, handle_tlbi_el1, forward_ttlb_traps),
+	SYS_INSN_TO_DESC(TLBI_ASIDE1IS, handle_tlbi_el1, forward_ttlb_traps),
+	SYS_INSN_TO_DESC(TLBI_VAAE1IS, handle_tlbi_el1, forward_ttlb_traps),
+	SYS_INSN_TO_DESC(TLBI_VALE1IS, handle_tlbi_el1, forward_ttlb_traps),
+	SYS_INSN_TO_DESC(TLBI_VAALE1IS, handle_tlbi_el1, forward_ttlb_traps),
+	SYS_INSN_TO_DESC(TLBI_VMALLE1, handle_tlbi_el1, forward_ttlb_traps),
+	SYS_INSN_TO_DESC(TLBI_VAE1, handle_tlbi_el1, forward_ttlb_traps),
+	SYS_INSN_TO_DESC(TLBI_ASIDE1, handle_tlbi_el1, forward_ttlb_traps),
+	SYS_INSN_TO_DESC(TLBI_VAAE1, handle_tlbi_el1, forward_ttlb_traps),
+	SYS_INSN_TO_DESC(TLBI_VALE1, handle_tlbi_el1, forward_ttlb_traps),
+	SYS_INSN_TO_DESC(TLBI_VAALE1, handle_tlbi_el1, forward_ttlb_traps),
+
 	SYS_INSN_TO_DESC(AT_S1E2R, handle_s1e2, forward_nv_traps),
 	SYS_INSN_TO_DESC(AT_S1E2W, handle_s1e2, forward_nv_traps),
 	SYS_INSN_TO_DESC(AT_S12E1R, handle_s12r, forward_nv_traps),
 	SYS_INSN_TO_DESC(AT_S12E1W, handle_s12w, forward_nv_traps),
 	SYS_INSN_TO_DESC(AT_S12E0R, handle_s12r, forward_nv_traps),
 	SYS_INSN_TO_DESC(AT_S12E0W, handle_s12w, forward_nv_traps),
+	SYS_INSN_TO_DESC(TLBI_IPAS2E1IS, handle_ipas2e1is, forward_nv_traps),
+	SYS_INSN_TO_DESC(TLBI_IPAS2LE1IS, handle_ipas2e1is, forward_nv_traps),
+	SYS_INSN_TO_DESC(TLBI_ALLE2IS, handle_alle2is, forward_nv_traps),
+	SYS_INSN_TO_DESC(TLBI_VAE2IS, handle_vae2, forward_nv_traps),
+	SYS_INSN_TO_DESC(TLBI_ALLE1IS, handle_alle1is, forward_nv_traps),
+	SYS_INSN_TO_DESC(TLBI_VALE2IS, handle_vae2, forward_nv_traps),
+	SYS_INSN_TO_DESC(TLBI_VMALLS12E1IS, handle_vmalls12e1is, forward_nv_traps),
+	SYS_INSN_TO_DESC(TLBI_IPAS2E1, handle_ipas2e1is, forward_nv_traps),
+	SYS_INSN_TO_DESC(TLBI_IPAS2LE1, handle_ipas2e1is, forward_nv_traps),
+	SYS_INSN_TO_DESC(TLBI_ALLE2, handle_alle2, forward_nv_traps),
+	SYS_INSN_TO_DESC(TLBI_VAE2, handle_vae2, forward_nv_traps),
+	SYS_INSN_TO_DESC(TLBI_ALLE1, handle_alle1is, forward_nv_traps),
+	SYS_INSN_TO_DESC(TLBI_VALE2, handle_vae2, forward_nv_traps),
+	SYS_INSN_TO_DESC(TLBI_VMALLS12E1, handle_vmalls12e1is, forward_nv_traps),
 };
 
 static bool trap_dbgidr(struct kvm_vcpu *vcpu,
