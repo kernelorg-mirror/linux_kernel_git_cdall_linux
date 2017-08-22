@@ -361,6 +361,11 @@ static inline bool vcpu_el2_format_used(const struct kvm_vcpu *vcpu)
 		(__vcpu_sys_reg(vcpu, HCR_EL2) & HCR_NV1));
 }
 
+static inline bool vcpu_nested_stage2_enabled(const struct kvm_vcpu *vcpu)
+{
+	return (vcpu_read_sys_reg(vcpu, HCR_EL2) & HCR_VM);
+}
+
 static inline u32 kvm_vcpu_get_hsr(const struct kvm_vcpu *vcpu)
 {
 	return vcpu->arch.fault.esr_el2;
@@ -567,14 +572,6 @@ static inline unsigned long vcpu_data_host_to_guest(struct kvm_vcpu *vcpu,
 	}
 
 	return data;		/* Leave LE untouched */
-}
-
-static inline struct kvm_s2_vmid *vcpu_get_active_vmid(struct kvm_vcpu *vcpu)
-{
-	if (unlikely(is_hyp_ctxt(vcpu)))
-		return &vcpu->kvm->arch.mmu.el2_vmid;
-
-	return &vcpu->kvm->arch.mmu.vmid;
 }
 
 #endif /* __ARM64_KVM_EMULATE_H__ */
