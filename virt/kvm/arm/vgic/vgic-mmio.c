@@ -131,6 +131,9 @@ void vgic_mmio_write_spending(struct kvm_vcpu *vcpu,
 		struct vgic_irq *irq = vgic_get_irq(vcpu->kvm, vcpu, intid + i);
 
 		spin_lock(&irq->irq_lock);
+		if (irq->hw)
+			vgic_irq_set_phys_active(irq, true);
+
 		irq->pending_latch = true;
 
 		vgic_queue_irq_unlock(vcpu->kvm, irq);
@@ -149,6 +152,20 @@ void vgic_mmio_write_cpending(struct kvm_vcpu *vcpu,
 		struct vgic_irq *irq = vgic_get_irq(vcpu->kvm, vcpu, intid + i);
 
 		spin_lock(&irq->irq_lock);
+		/*
+		 * We don't want the guest to effectively mask the physical
+		 * interrupt by doing a write to SPENDR followed by a write to
+		 * CPENDR for HW interrupts, so we clear the active state on
+		 * the physical side here.  This may lead to taking an
+		 * additional interrupt on the host, but that should not be a
+		 * problem as the worst that can happen is an additional vgic
+		 * injection.  We also clear the pending state to maintain
+		 * proper semantics for edge HW interrupts.
+		 */
+		if (irq->hw) {
+			vgic_irq_set_phys_pending(irq, false);
+			vgic_irq_set_phys_active(irq, false);
+		}
 
 		irq->pending_latch = false;
 
@@ -213,6 +230,22 @@ static void vgic_mmio_change_active(struct kvm_vcpu *vcpu, struct vgic_irq *irq,
 	       irq->vcpu != requester_vcpu && /* Current thread is not the VCPU thread */
 	       irq->vcpu->cpu != -1) /* VCPU thread is running */
 		cond_resched_lock(&irq->irq_lock);
+
+	if (irq->hw) {
+		/*
+		 * We cannot support setting the physical active state for
+		 * private interrupts from another CPU than the one running
+		 * the VCPU which identifies which private interrupt it is
+		 * trying to modify.
+		 */
+		if (irq->intid < VGIC_NR_PRIVATE_IRQS &&
+		    irq->target_vcpu != requester_vcpu) {
+			spin_unlock(&irq->irq_lock);
+			return;
+		}
+
+		vgic_irq_set_phys_active(irq, new_active_state);
+	}
 
 	irq->active = new_active_state;
 	if (new_active_state)
