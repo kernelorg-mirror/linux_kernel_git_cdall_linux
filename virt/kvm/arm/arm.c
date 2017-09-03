@@ -141,6 +141,7 @@ int kvm_arch_init_vm(struct kvm *kvm, unsigned long type)
 
 	/* Mark the initial VMID generation invalid */
 	kvm->arch.mmu.vmid.vmid_gen = 0;
+	kvm->arch.mmu.el2_vmid.vmid_gen = 0;
 
 	/* The maximum number of VCPUs is limited by the host's GIC model */
 	kvm->arch.max_vcpus = vgic_present ?
@@ -343,6 +344,8 @@ void kvm_arch_vcpu_unblocking(struct kvm_vcpu *vcpu)
 
 int kvm_arch_vcpu_init(struct kvm_vcpu *vcpu)
 {
+	struct kvm_s2_mmu *mmu = &vcpu->kvm->arch.mmu;
+
 	/* Force users to call KVM_ARM_VCPU_INIT */
 	vcpu->arch.target = -1;
 	bitmap_zero(vcpu->arch.features, KVM_VCPU_MAX_FEATURES);
@@ -352,7 +355,8 @@ int kvm_arch_vcpu_init(struct kvm_vcpu *vcpu)
 
 	kvm_arm_reset_debug_ptr(vcpu);
 
-	vcpu->arch.hw_mmu = &vcpu->kvm->arch.mmu;
+	vcpu->arch.hw_mmu = mmu;
+	vcpu->arch.vttbr_el2 = kvm_get_vttbr(&mmu->vmid, mmu);
 
 	return kvm_vgic_vcpu_init(vcpu);
 }
@@ -368,7 +372,10 @@ void kvm_arch_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 	 * over-invalidation doesn't affect correctness.
 	 */
 	if (*last_ran != vcpu->vcpu_id) {
-		kvm_call_hyp(__kvm_tlb_flush_local_vmid, &vcpu->kvm->arch.mmu);
+		struct kvm_s2_mmu *mmu = &vcpu->kvm->arch.mmu;
+		u64 vttbr = kvm_get_vttbr(mmu);
+
+		kvm_call_hyp(__kvm_tlb_flush_local_vmid, vttbr);
 		*last_ran = vcpu->vcpu_id;
 	}
 
@@ -677,7 +684,7 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		 */
 		cond_resched();
 
-		update_vmid(&vcpu->arch.hw_mmu->vmid);
+		update_vmid(vcpu_get_active_vmid(vcpu));
 
 		check_vcpu_requests(vcpu);
 
@@ -726,7 +733,7 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		 */
 		smp_store_mb(vcpu->mode, IN_GUEST_MODE);
 
-		if (ret <= 0 || need_new_vmid_gen(&vcpu->kvm->arch.mmu.vmid) ||
+		if (ret <= 0 || need_new_vmid_gen(vcpu_get_active_vmid(vcpu)) ||
 		    kvm_request_pending(vcpu)) {
 			vcpu->mode = OUTSIDE_GUEST_MODE;
 			isb(); /* Ensure work in x_flush_hwstate is committed */

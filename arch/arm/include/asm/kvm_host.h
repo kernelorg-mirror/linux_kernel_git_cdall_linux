@@ -64,6 +64,7 @@ struct kvm_vmid {
 
 struct kvm_s2_mmu {
 	struct kvm_vmid vmid;
+	struct kvm_vmid el2_vmid;
 
 	/* Stage-2 page table */
 	pgd_t *pgd;
@@ -198,6 +199,9 @@ struct kvm_vcpu_arch {
 
 	/* Stage 2 paging state used by the hardware on next switch */
 	struct kvm_s2_mmu *hw_mmu;
+
+	/* VTTBR value used by the shadow paging MMU in vEL2. */
+	u64 vttbr_vel2;
 };
 
 struct kvm_vm_stat {
