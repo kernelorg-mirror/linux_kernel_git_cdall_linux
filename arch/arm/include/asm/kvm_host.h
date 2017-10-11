@@ -203,6 +203,8 @@ struct kvm_vcpu_stat {
 
 #define vcpu_cp15(v,r)	(v)->arch.ctxt.cp15[r]
 
+#define vcpu_sysregs_loaded(_v)	(false)
+
 int kvm_vcpu_preferred_target(struct kvm_vcpu_init *init);
 unsigned long kvm_arm_num_regs(struct kvm_vcpu *vcpu);
 int kvm_arm_copy_reg_indices(struct kvm_vcpu *vcpu, u64 __user *indices);

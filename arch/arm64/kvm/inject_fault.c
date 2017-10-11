@@ -23,6 +23,7 @@
 
 #include <linux/kvm_host.h>
 #include <asm/kvm_emulate.h>
+#include <asm/kvm_hyp.h>
 #include <asm/esr.h>
 
 #define PSTATE_FAULT_BITS_64 	(PSR_MODE_EL1h | PSR_A_BIT | PSR_F_BIT | \
@@ -32,6 +33,14 @@
 #define CURRENT_EL_SP_ELx_VECTOR	0x200
 #define LOWER_EL_AArch64_VECTOR		0x400
 #define LOWER_EL_AArch32_VECTOR		0x600
+
+static void vcpu_set_elr_el1(struct kvm_vcpu *vcpu, u64 val)
+{
+	if (vcpu->arch.sysregs_loaded_on_cpu)
+		write_sysreg_el1(val, elr);
+	else
+		vcpu_gp_regs(vcpu)->elr_el1 = val;
+}
 
 enum exception_type {
 	except_type_sync	= 0,
@@ -58,7 +67,7 @@ static u64 get_except_vector(struct kvm_vcpu *vcpu, enum exception_type type)
 		exc_offset = LOWER_EL_AArch32_VECTOR;
 	}
 
-	return vcpu_sys_reg(vcpu, VBAR_EL1) + exc_offset + type;
+	return vcpu_get_vbar(vcpu) + exc_offset + type;
 }
 
 static void inject_abt64(struct kvm_vcpu *vcpu, bool is_iabt, unsigned long addr)
@@ -67,11 +76,11 @@ static void inject_abt64(struct kvm_vcpu *vcpu, bool is_iabt, unsigned long addr
 	bool is_aarch32 = vcpu_mode_is_32bit(vcpu);
 	u32 esr = 0;
 
-	*vcpu_elr_el1(vcpu) = *vcpu_pc(vcpu);
+	vcpu_set_elr_el1(vcpu, *vcpu_pc(vcpu));
 	*vcpu_pc(vcpu) = get_except_vector(vcpu, except_type_sync);
 
 	*vcpu_cpsr(vcpu) = PSTATE_FAULT_BITS_64;
-	*vcpu_spsr(vcpu) = cpsr;
+	vcpu_set_spsr(vcpu, cpsr);
 
 	vcpu_sys_reg(vcpu, FAR_EL1) = addr;
 
@@ -102,11 +111,11 @@ static void inject_undef64(struct kvm_vcpu *vcpu)
 	unsigned long cpsr = *vcpu_cpsr(vcpu);
 	u32 esr = (ESR_ELx_EC_UNKNOWN << ESR_ELx_EC_SHIFT);
 
-	*vcpu_elr_el1(vcpu) = *vcpu_pc(vcpu);
+	vcpu_set_elr_el1(vcpu, *vcpu_pc(vcpu));
 	*vcpu_pc(vcpu) = get_except_vector(vcpu, except_type_sync);
 
 	*vcpu_cpsr(vcpu) = PSTATE_FAULT_BITS_64;
-	*vcpu_spsr(vcpu) = cpsr;
+	vcpu_set_spsr(vcpu, cpsr);
 
 	/*
 	 * Build an unknown exception, depending on the instruction
