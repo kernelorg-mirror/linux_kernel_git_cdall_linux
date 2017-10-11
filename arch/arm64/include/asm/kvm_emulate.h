@@ -91,8 +91,15 @@ static inline bool vcpu_mode_is_32bit(const struct kvm_vcpu *vcpu)
 /* Set the SPSR for the current mode */
 static inline void vcpu_set_spsr(struct kvm_vcpu *vcpu, u64 val)
 {
-	if (vcpu_mode_is_32bit(vcpu))
+	if (vcpu_mode_is_32bit(vcpu)) {
+		if (vcpu->arch.sysregs_loaded_on_cpu)
+			__sysreg32_save_state(vcpu);
+
 		*vcpu_spsr32(vcpu) = val;
+
+		if (vcpu->arch.sysregs_loaded_on_cpu)
+			__sysreg32_restore_state(vcpu);
+	}
 
 	if (vcpu->arch.sysregs_loaded_on_cpu)
 		write_sysreg_el1(val, spsr);
