@@ -166,7 +166,7 @@ static void prepare_fault32(struct kvm_vcpu *vcpu, u32 mode, u32 vect_offset)
 	unsigned long new_spsr_value = *vcpu_cpsr(vcpu);
 	bool is_thumb = (new_spsr_value & COMPAT_PSR_T_BIT);
 	u32 return_offset = return_offsets[vect_offset >> 2][is_thumb];
-	u32 sctlr = vcpu_cp15(vcpu, c1_SCTLR);
+	u32 sctlr = vcpu_get_c1_sctlr(vcpu);
 
 	cpsr = mode | COMPAT_PSR_I_BIT;
 
@@ -178,14 +178,14 @@ static void prepare_fault32(struct kvm_vcpu *vcpu, u32 mode, u32 vect_offset)
 	*vcpu_cpsr(vcpu) = cpsr;
 
 	/* Note: These now point to the banked copies */
-	*vcpu_spsr(vcpu) = new_spsr_value;
+	vcpu_set_spsr(vcpu, new_spsr_value);
 	*vcpu_reg32(vcpu, 14) = *vcpu_pc(vcpu) + return_offset;
 
 	/* Branch to exception vector */
 	if (sctlr & (1 << 13))
 		vect_offset += 0xffff0000;
 	else /* always have security exceptions */
-		vect_offset += vcpu_cp15(vcpu, c12_VBAR);
+		vect_offset += vcpu_get_vbar(vcpu);
 
 	*vcpu_pc(vcpu) = vect_offset;
 }
@@ -205,6 +205,19 @@ static void inject_abt32(struct kvm_vcpu *vcpu, bool is_pabt,
 	u32 vect_offset;
 	u32 *far, *fsr;
 	bool is_lpae;
+
+	/*
+	 * The emulation code here is going to modify several system
+	 * registers, so on arm64 with VHE we want to load them into memory
+	 * and store them back into registers, ensuring that we observe the
+	 * most recent values and that we expose the right values back to the
+	 * guest.
+	 *
+	 * We disable preemption to avoid racing with another vcpu_put/load
+	 * operation.
+	 */
+	preempt_disable();
+	kvm_vcpu_put_sysregs(vcpu);
 
 	if (is_pabt) {
 		vect_offset = 12;
@@ -226,6 +239,9 @@ static void inject_abt32(struct kvm_vcpu *vcpu, bool is_pabt,
 		*fsr = 1 << 9 | 0x34;
 	else
 		*fsr = 0x14;
+
+	kvm_vcpu_load_sysregs(vcpu);
+	preempt_enable();
 }
 
 void kvm_inject_dabt32(struct kvm_vcpu *vcpu, unsigned long addr)

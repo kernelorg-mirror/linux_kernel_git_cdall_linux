@@ -26,6 +26,7 @@
 
 #include <asm/esr.h>
 #include <asm/kvm_arm.h>
+#include <asm/kvm_hyp.h>
 #include <asm/kvm_mmio.h>
 #include <asm/ptrace.h>
 #include <asm/cputype.h>
@@ -77,11 +78,6 @@ static inline unsigned long *vcpu_pc(const struct kvm_vcpu *vcpu)
 	return (unsigned long *)&vcpu_gp_regs(vcpu)->regs.pc;
 }
 
-static inline unsigned long *vcpu_elr_el1(const struct kvm_vcpu *vcpu)
-{
-	return (unsigned long *)&vcpu_gp_regs(vcpu)->elr_el1;
-}
-
 static inline unsigned long *vcpu_cpsr(const struct kvm_vcpu *vcpu)
 {
 	return (unsigned long *)&vcpu_gp_regs(vcpu)->regs.pstate;
@@ -90,6 +86,40 @@ static inline unsigned long *vcpu_cpsr(const struct kvm_vcpu *vcpu)
 static inline bool vcpu_mode_is_32bit(const struct kvm_vcpu *vcpu)
 {
 	return !!(*vcpu_cpsr(vcpu) & PSR_MODE32_BIT);
+}
+
+/* Set the SPSR for the current mode */
+static inline void vcpu_set_spsr(struct kvm_vcpu *vcpu, u64 val)
+{
+	if (vcpu_mode_is_32bit(vcpu))
+		*vcpu_spsr32(vcpu) = val;
+
+	if (vcpu->arch.sysregs_loaded_on_cpu)
+		write_sysreg_el1(val, spsr);
+	else
+		vcpu_gp_regs(vcpu)->spsr[KVM_SPSR_EL1] = val;
+}
+
+static inline unsigned long vcpu_get_vbar(struct kvm_vcpu *vcpu)
+{
+	unsigned long vbar;
+
+	if (vcpu->arch.sysregs_loaded_on_cpu)
+		vbar = read_sysreg_el1(vbar);
+	else
+		vbar = vcpu_sys_reg(vcpu, VBAR_EL1);
+
+	if (vcpu_el1_is_32bit(vcpu))
+		return lower_32_bits(vbar);
+	return vbar;
+}
+
+static inline u32 vcpu_get_c1_sctlr(struct kvm_vcpu *vcpu)
+{
+	if (vcpu_sysregs_loaded(vcpu))
+		return lower_32_bits(read_sysreg_el1(sctlr));
+	else
+		return vcpu_cp15(vcpu, c1_SCTLR);
 }
 
 static inline bool kvm_condition_valid(const struct kvm_vcpu *vcpu)
@@ -129,15 +159,6 @@ static inline void vcpu_set_reg(struct kvm_vcpu *vcpu, u8 reg_num,
 {
 	if (reg_num != 31)
 		vcpu_gp_regs(vcpu)->regs.regs[reg_num] = val;
-}
-
-/* Get vcpu SPSR for current mode */
-static inline unsigned long *vcpu_spsr(const struct kvm_vcpu *vcpu)
-{
-	if (vcpu_mode_is_32bit(vcpu))
-		return vcpu_spsr32(vcpu);
-
-	return (unsigned long *)&vcpu_gp_regs(vcpu)->spsr[KVM_SPSR_EL1];
 }
 
 static inline bool vcpu_mode_priv(const struct kvm_vcpu *vcpu)

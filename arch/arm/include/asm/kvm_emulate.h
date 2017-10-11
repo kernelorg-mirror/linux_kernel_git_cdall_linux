@@ -55,6 +55,22 @@ static inline void vcpu_set_reg(struct kvm_vcpu *vcpu, u8 reg_num,
 	*vcpu_reg(vcpu, reg_num) = val;
 }
 
+/* Set the SPSR for the current mode */
+static inline void vcpu_set_spsr(struct kvm_vcpu *vcpu, unsigned long val)
+{
+	*vcpu_spsr(vcpu) = val;
+}
+
+static inline unsigned long vcpu_get_vbar(struct kvm_vcpu *vcpu)
+{
+	return vcpu_cp15(vcpu, c12_VBAR);
+}
+
+static inline u32 vcpu_get_c1_sctlr(struct kvm_vcpu *vcpu)
+{
+	return vcpu_cp15(vcpu, c1_SCTLR);
+}
+
 bool kvm_condition_valid32(const struct kvm_vcpu *vcpu);
 void kvm_skip_instr32(struct kvm_vcpu *vcpu, bool is_wide_instr);
 void kvm_inject_undef32(struct kvm_vcpu *vcpu);

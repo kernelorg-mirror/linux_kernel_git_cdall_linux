@@ -294,6 +294,8 @@ struct kvm_vcpu_arch {
 #define vcpu_cp14(v,r)		((v)->arch.ctxt.copro[(r)])
 #define vcpu_cp15(v,r)		((v)->arch.ctxt.copro[(r)])
 
+#define vcpu_sysregs_loaded(_v)	((_v)->arch.sysregs_loaded_on_cpu)
+
 struct kvm_vm_stat {
 	ulong remote_tlb_flush;
 };
