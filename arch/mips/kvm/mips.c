@@ -444,8 +444,13 @@ int kvm_arch_vcpu_ioctl_set_guest_debug(struct kvm_vcpu *vcpu,
 
 int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 {
-	int r = -EINTR;
+	int r;
 	sigset_t sigsaved;
+
+	r = vcpu_load(vcpu);
+	if (r)
+		return r;
+	kvm_vcpu_run_adjust_pid(vcpu);
 
 	if (vcpu->sigset_active)
 		sigprocmask(SIG_SETMASK, &vcpu->sigset, &sigsaved);
@@ -456,6 +461,7 @@ int kvm_arch_vcpu_ioctl_run(struct kvm_vcpu *vcpu, struct kvm_run *run)
 		vcpu->mmio_needed = 0;
 	}
 
+	r = -EINTR;
 	if (run->immediate_exit)
 		goto out;
 
@@ -483,6 +489,7 @@ out:
 	if (vcpu->sigset_active)
 		sigprocmask(SIG_SETMASK, &sigsaved, NULL);
 
+	vcpu_put(vcpu);
 	return r;
 }
 
