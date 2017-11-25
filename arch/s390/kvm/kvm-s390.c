@@ -2819,15 +2819,20 @@ int kvm_arch_vcpu_ioctl_translate(struct kvm_vcpu *vcpu,
 int kvm_arch_vcpu_ioctl_set_guest_debug(struct kvm_vcpu *vcpu,
 					struct kvm_guest_debug *dbg)
 {
-	int rc = 0;
+	int rc;
+
+	rc = vcpu_load(vcpu);
+	if (rc)
+		return rc;
 
 	vcpu->guest_debug = 0;
 	kvm_s390_clear_bp_data(vcpu);
 
+	rc = -EINVAL;
 	if (dbg->control & ~VALID_GUESTDBG_FLAGS)
-		return -EINVAL;
+		goto out;
 	if (!sclp.has_gpere)
-		return -EINVAL;
+		goto out;
 
 	if (dbg->control & KVM_GUESTDBG_ENABLE) {
 		vcpu->guest_debug = dbg->control;
@@ -2847,6 +2852,9 @@ int kvm_arch_vcpu_ioctl_set_guest_debug(struct kvm_vcpu *vcpu,
 		atomic_andnot(CPUSTAT_P, &vcpu->arch.sie_block->cpuflags);
 	}
 
+	rc = 0;
+out:
+	vcpu_put(vcpu);
 	return rc;
 }
 
