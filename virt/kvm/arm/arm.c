@@ -381,29 +381,25 @@ static void vcpu_power_off(struct kvm_vcpu *vcpu)
 int kvm_arch_vcpu_ioctl_get_mpstate(struct kvm_vcpu *vcpu,
 				    struct kvm_mp_state *mp_state)
 {
-	int ret;
-
-	ret = vcpu_load(vcpu);
-	if (ret)
-		return ret;
+	if (mutex_lock_killable(&vcpu->mutex))
+		return -EINTR;
 
 	if (vcpu->arch.power_off)
 		mp_state->mp_state = KVM_MP_STATE_STOPPED;
 	else
 		mp_state->mp_state = KVM_MP_STATE_RUNNABLE;
 
-	vcpu_put(vcpu);
+	mutex_unlock(&vcpu->mutex);
 	return 0;
 }
 
 int kvm_arch_vcpu_ioctl_set_mpstate(struct kvm_vcpu *vcpu,
 				    struct kvm_mp_state *mp_state)
 {
-	int ret;
+	int ret = 0;
 
-	ret = vcpu_load(vcpu);
-	if (ret)
-		return ret;
+	if (mutex_lock_killable(&vcpu->mutex))
+		return -EINTR;
 
 	switch (mp_state->mp_state) {
 	case KVM_MP_STATE_RUNNABLE:
@@ -416,7 +412,7 @@ int kvm_arch_vcpu_ioctl_set_mpstate(struct kvm_vcpu *vcpu,
 		ret = -EINVAL;
 	}
 
-	vcpu_put(vcpu);
+	mutex_unlock(&vcpu->mutex);
 	return ret;
 }
 
@@ -1009,9 +1005,8 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
 	struct kvm_device_attr attr;
 	long r;
 
-	r = vcpu_load(vcpu);
-	if (r)
-		return r;
+	if (mutex_lock_killable(&vcpu->mutex))
+		return -EINTR;
 
 	switch (ioctl) {
 	case KVM_ARM_VCPU_INIT: {
@@ -1089,7 +1084,7 @@ long kvm_arch_vcpu_ioctl(struct file *filp,
 		r = -EINVAL;
 	}
 
-	vcpu_put(vcpu);
+	mutex_unlock(&vcpu->mutex);
 	return r;
 }
 
