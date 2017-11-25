@@ -7654,6 +7654,11 @@ int kvm_arch_vcpu_ioctl_translate(struct kvm_vcpu *vcpu,
 	unsigned long vaddr = tr->linear_address;
 	gpa_t gpa;
 	int idx;
+	int r;
+
+	r = vcpu_load(vcpu);
+	if (r)
+		return r;
 
 	idx = srcu_read_lock(&vcpu->kvm->srcu);
 	gpa = kvm_mmu_gva_to_gpa_system(vcpu, vaddr, NULL);
@@ -7663,6 +7668,7 @@ int kvm_arch_vcpu_ioctl_translate(struct kvm_vcpu *vcpu,
 	tr->writeable = 1;
 	tr->usermode = 0;
 
+	vcpu_put(vcpu);
 	return 0;
 }
 
