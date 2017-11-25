@@ -2535,15 +2535,6 @@ static long kvm_vcpu_ioctl(struct file *filp,
 	if (unlikely(_IOC_TYPE(ioctl) != KVMIO))
 		return -EINVAL;
 
-#if defined(CONFIG_S390) || defined(CONFIG_PPC) || defined(CONFIG_MIPS)
-	/*
-	 * Special cases: vcpu ioctls that are asynchronous to vcpu execution,
-	 * so vcpu_load() would break it.
-	 */
-	if (ioctl == KVM_S390_INTERRUPT || ioctl == KVM_S390_IRQ || ioctl == KVM_INTERRUPT)
-		return kvm_arch_vcpu_ioctl(filp, ioctl, arg);
-#endif
-
 	switch (ioctl) {
 	case KVM_RUN: {
 		r = -EINVAL;
@@ -2701,11 +2692,7 @@ out_free1:
 		break;
 	}
 	default:
-		r = vcpu_load(vcpu);
-		if (r)
-			goto out;
-		r = kvm_arch_vcpu_ioctl(filp, ioctl, arg);
-		vcpu_put(vcpu);
+		return kvm_arch_vcpu_ioctl(filp, ioctl, arg);
 	}
 out:
 	kfree(fpu);
