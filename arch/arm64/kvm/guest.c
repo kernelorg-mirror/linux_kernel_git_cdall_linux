@@ -363,9 +363,8 @@ int kvm_arch_vcpu_ioctl_set_guest_debug(struct kvm_vcpu *vcpu,
 {
 	int ret;
 
-	ret = vcpu_load(vcpu);
-	if (ret)
-		return ret;
+	if (mutex_lock_killable(&vcpu->mutex))
+		return -EINTR;
 
 	trace_kvm_set_guest_debug(vcpu, dbg->control);
 
@@ -387,8 +386,9 @@ int kvm_arch_vcpu_ioctl_set_guest_debug(struct kvm_vcpu *vcpu,
 		vcpu->guest_debug = 0;
 	}
 
+	ret = 0;
 out:
-	vcpu_put(vcpu);
+	mutex_unlock(&vcpu->mutex);
 	return ret;
 }
 
