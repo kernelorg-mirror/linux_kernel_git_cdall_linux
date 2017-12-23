@@ -35,6 +35,7 @@
 #include <asm/kvm_coproc.h>
 #include <asm/kvm_emulate.h>
 #include <asm/kvm_host.h>
+#include <asm/kvm_hyp.h>
 #include <asm/kvm_mmu.h>
 #include <asm/perf_event.h>
 #include <asm/sysreg.h>
@@ -74,6 +75,165 @@ static bool write_to_read_only(struct kvm_vcpu *vcpu,
 	print_sys_reg_instr(params);
 	kvm_inject_undefined(vcpu);
 	return false;
+}
+
+struct sys_reg_accessor {
+	u64	(*rdsr)(struct kvm_vcpu *, int);
+	void	(*wrsr)(struct kvm_vcpu *, int, u64);
+};
+
+#define DECLARE_IMMEDIATE_SR(i)						\
+	static u64 __##i##_read(struct kvm_vcpu *vcpu, int r)		\
+	{								\
+		return __vcpu_sys_reg(vcpu, r);				\
+	}								\
+									\
+	static void __##i##_write(struct kvm_vcpu *vcpu, int r, u64 v)	\
+	{								\
+		__vcpu_sys_reg(vcpu, r) = v;				\
+	}								\
+
+#define DECLARE_DEFERRABLE_SR(i, s)					\
+	static u64 __##i##_read(struct kvm_vcpu *vcpu, int r)		\
+	{								\
+		if (vcpu->arch.sysregs_loaded_on_cpu) {			\
+			WARN_ON(kvm_arm_get_running_vcpu() != vcpu);	\
+			return read_sysreg_s((s));			\
+		}							\
+		return __vcpu_sys_reg(vcpu, r);				\
+	}								\
+									\
+	static void __##i##_write(struct kvm_vcpu *vcpu, int r, u64 v)	\
+	{								\
+		if (vcpu->arch.sysregs_loaded_on_cpu) {			\
+			WARN_ON(kvm_arm_get_running_vcpu() != vcpu);	\
+			write_sysreg_s(v, (s));				\
+		} else {						\
+			__vcpu_sys_reg(vcpu, r) = v;			\
+		}							\
+	}								\
+
+
+#define SR_HANDLER_RANGE(i,e)						\
+	[i ... e] =  (struct sys_reg_accessor) {			\
+		.rdsr = __##i##_read,					\
+		.wrsr = __##i##_write,					\
+	}
+
+#define SR_HANDLER(i)	SR_HANDLER_RANGE(i, i)
+
+static void bad_sys_reg(int reg)
+{
+	WARN_ONCE(1, "Bad system register access %d\n", reg);
+}
+
+static u64 __default_read_sys_reg(struct kvm_vcpu *vcpu, int reg)
+{
+	bad_sys_reg(reg);
+	return 0;
+}
+
+static void __default_write_sys_reg(struct kvm_vcpu *vcpu, int reg, u64 val)
+{
+	bad_sys_reg(reg);
+}
+
+/* Ordered as in enum vcpu_sysreg */
+DECLARE_IMMEDIATE_SR(MPIDR_EL1);
+DECLARE_IMMEDIATE_SR(CSSELR_EL1);
+DECLARE_IMMEDIATE_SR(SCTLR_EL1);
+DECLARE_IMMEDIATE_SR(ACTLR_EL1);
+DECLARE_IMMEDIATE_SR(CPACR_EL1);
+DECLARE_IMMEDIATE_SR(TTBR0_EL1);
+DECLARE_IMMEDIATE_SR(TTBR1_EL1);
+DECLARE_IMMEDIATE_SR(TCR_EL1);
+DECLARE_IMMEDIATE_SR(ESR_EL1);
+DECLARE_IMMEDIATE_SR(AFSR0_EL1);
+DECLARE_IMMEDIATE_SR(AFSR1_EL1);
+DECLARE_IMMEDIATE_SR(FAR_EL1);
+DECLARE_IMMEDIATE_SR(MAIR_EL1);
+DECLARE_IMMEDIATE_SR(VBAR_EL1);
+DECLARE_IMMEDIATE_SR(CONTEXTIDR_EL1);
+DECLARE_IMMEDIATE_SR(TPIDR_EL0);
+DECLARE_IMMEDIATE_SR(TPIDRRO_EL0);
+DECLARE_IMMEDIATE_SR(TPIDR_EL1);
+DECLARE_IMMEDIATE_SR(AMAIR_EL1);
+DECLARE_IMMEDIATE_SR(CNTKCTL_EL1);
+DECLARE_IMMEDIATE_SR(PAR_EL1);
+DECLARE_IMMEDIATE_SR(MDSCR_EL1);
+DECLARE_IMMEDIATE_SR(MDCCINT_EL1);
+DECLARE_IMMEDIATE_SR(PMCR_EL0);
+DECLARE_IMMEDIATE_SR(PMSELR_EL0);
+DECLARE_IMMEDIATE_SR(PMEVCNTR0_EL0);
+/* PMEVCNTR30_EL0 */
+DECLARE_IMMEDIATE_SR(PMCCNTR_EL0);
+DECLARE_IMMEDIATE_SR(PMEVTYPER0_EL0);
+/* PMEVTYPER30_EL0 */
+DECLARE_IMMEDIATE_SR(PMCCFILTR_EL0);
+DECLARE_IMMEDIATE_SR(PMCNTENSET_EL0);
+DECLARE_IMMEDIATE_SR(PMINTENSET_EL1);
+DECLARE_IMMEDIATE_SR(PMOVSSET_EL0);
+DECLARE_IMMEDIATE_SR(PMSWINC_EL0);
+DECLARE_IMMEDIATE_SR(PMUSERENR_EL0);
+DECLARE_IMMEDIATE_SR(DACR32_EL2);
+DECLARE_IMMEDIATE_SR(IFSR32_EL2);
+DECLARE_IMMEDIATE_SR(FPEXC32_EL2);
+DECLARE_IMMEDIATE_SR(DBGVCR32_EL2);
+
+static const struct sys_reg_accessor sys_reg_accessors[NR_SYS_REGS] = {
+	[0 ... NR_SYS_REGS - 1] = {
+		.rdsr = __default_read_sys_reg,
+		.wrsr = __default_write_sys_reg,
+	},
+
+	SR_HANDLER(MPIDR_EL1),
+	SR_HANDLER(CSSELR_EL1),
+	SR_HANDLER(SCTLR_EL1),
+	SR_HANDLER(ACTLR_EL1),
+	SR_HANDLER(CPACR_EL1),
+	SR_HANDLER(TTBR0_EL1),
+	SR_HANDLER(TTBR1_EL1),
+	SR_HANDLER(TCR_EL1),
+	SR_HANDLER(ESR_EL1),
+	SR_HANDLER(AFSR0_EL1),
+	SR_HANDLER(AFSR1_EL1),
+	SR_HANDLER(FAR_EL1),
+	SR_HANDLER(MAIR_EL1),
+	SR_HANDLER(VBAR_EL1),
+	SR_HANDLER(CONTEXTIDR_EL1),
+	SR_HANDLER(TPIDR_EL0),
+	SR_HANDLER(TPIDRRO_EL0),
+	SR_HANDLER(TPIDR_EL1),
+	SR_HANDLER(AMAIR_EL1),
+	SR_HANDLER(CNTKCTL_EL1),
+	SR_HANDLER(PAR_EL1),
+	SR_HANDLER(MDSCR_EL1),
+	SR_HANDLER(MDCCINT_EL1),
+	SR_HANDLER(PMCR_EL0),
+	SR_HANDLER(PMSELR_EL0),
+	SR_HANDLER_RANGE(PMEVCNTR0_EL0, PMEVCNTR30_EL0),
+	SR_HANDLER(PMCCNTR_EL0),
+	SR_HANDLER_RANGE(PMEVTYPER0_EL0, PMEVTYPER30_EL0),
+	SR_HANDLER(PMCCFILTR_EL0),
+	SR_HANDLER(PMCNTENSET_EL0),
+	SR_HANDLER(PMINTENSET_EL1),
+	SR_HANDLER(PMOVSSET_EL0),
+	SR_HANDLER(PMSWINC_EL0),
+	SR_HANDLER(PMUSERENR_EL0),
+	SR_HANDLER(DACR32_EL2),
+	SR_HANDLER(IFSR32_EL2),
+	SR_HANDLER(FPEXC32_EL2),
+	SR_HANDLER(DBGVCR32_EL2),
+};
+
+u64 vcpu_read_sys_reg(struct kvm_vcpu *vcpu, int reg)
+{
+	return sys_reg_accessors[reg].rdsr(vcpu, reg);
+}
+
+void vcpu_write_sys_reg(struct kvm_vcpu *vcpu, int reg, u64 val)
+{
+	sys_reg_accessors[reg].wrsr(vcpu, reg, val);
 }
 
 /* 3 bits per cache level, as per CLIDR, but non-existent caches always 0 */
