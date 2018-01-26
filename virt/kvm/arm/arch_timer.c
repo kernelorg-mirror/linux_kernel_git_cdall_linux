@@ -46,6 +46,8 @@ static const struct kvm_irq_level default_vtimer_irq = {
 	.level	= 1,
 };
 
+static DEFINE_PER_CPU(bool, host_vtimer_irq_disabled);
+
 static bool kvm_timer_irq_can_fire(struct arch_timer_context *timer_ctx);
 static void kvm_timer_update_irq(struct kvm_vcpu *vcpu, bool new_level,
 				 struct arch_timer_context *timer_ctx);
@@ -54,6 +56,18 @@ static bool kvm_timer_should_fire(struct arch_timer_context *timer_ctx);
 u64 kvm_phys_timer_read(void)
 {
 	return timecounter->cc->read(timecounter->cc);
+}
+
+static void enable_host_vtimer_irq(void)
+{
+	enable_percpu_irq(host_vtimer_irq, host_vtimer_irq_flags);
+	__this_cpu_write(host_vtimer_irq_disabled, false);
+}
+
+static void disable_host_vtimer_irq(void)
+{
+	disable_percpu_irq(host_vtimer_irq);
+	__this_cpu_write(host_vtimer_irq_disabled, true);
 }
 
 static void soft_timer_start(struct hrtimer *hrt, u64 ns)
@@ -83,9 +97,9 @@ static void kvm_vtimer_update_mask_user(struct kvm_vcpu *vcpu)
 	 * guest when the timer fires.
 	 */
 	if (vtimer->irq.level)
-		disable_percpu_irq(host_vtimer_irq);
+		disable_host_vtimer_irq();
 	else
-		enable_percpu_irq(host_vtimer_irq, 0);
+		enable_host_vtimer_irq();
 }
 
 static irqreturn_t kvm_arch_timer_handler(int irq, void *dev_id)
@@ -524,6 +538,10 @@ void kvm_timer_vcpu_put(struct kvm_vcpu *vcpu)
 	if (unlikely(!timer->enabled))
 		return;
 
+	if (unlikely(!irqchip_in_kernel(vcpu->kvm)) &&
+	    __this_cpu_read(host_vtimer_irq_disabled))
+		enable_host_vtimer_irq();
+
 	vtimer_save_state(vcpu);
 
 	/*
@@ -566,6 +584,11 @@ static void unmask_vtimer_irq_user(struct kvm_vcpu *vcpu)
 
 void kvm_timer_sync_hwstate(struct kvm_vcpu *vcpu)
 {
+	struct arch_timer_cpu *timer = &vcpu->arch.timer_cpu;
+
+	if (unlikely(!timer->enabled))
+		return;
+
 	unmask_vtimer_irq_user(vcpu);
 }
 
@@ -629,7 +652,7 @@ void kvm_timer_vcpu_init(struct kvm_vcpu *vcpu)
 
 static void kvm_timer_init_interrupt(void *info)
 {
-	enable_percpu_irq(host_vtimer_irq, host_vtimer_irq_flags);
+	enable_host_vtimer_irq();
 }
 
 int kvm_arm_timer_set_reg(struct kvm_vcpu *vcpu, u64 regid, u64 value)
@@ -706,7 +729,7 @@ static int kvm_timer_starting_cpu(unsigned int cpu)
 
 static int kvm_timer_dying_cpu(unsigned int cpu)
 {
-	disable_percpu_irq(host_vtimer_irq);
+	disable_host_vtimer_irq();
 	return 0;
 }
 
