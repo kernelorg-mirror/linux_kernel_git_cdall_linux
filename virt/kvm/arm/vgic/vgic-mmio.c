@@ -40,6 +40,13 @@ void vgic_mmio_write_wi(struct kvm_vcpu *vcpu, gpa_t addr,
 	/* Ignore */
 }
 
+int vgic_mmio_uaccess_write_wi(struct kvm_vcpu *vcpu, gpa_t addr,
+			       unsigned int len, unsigned long val)
+{
+	/* Ignore */
+	return 0;
+}
+
 unsigned long vgic_mmio_read_group(struct kvm_vcpu *vcpu,
 				   gpa_t addr, unsigned int len)
 {
@@ -401,11 +408,12 @@ void vgic_mmio_write_cactive(struct kvm_vcpu *vcpu,
 	mutex_unlock(&vcpu->kvm->lock);
 }
 
-void vgic_mmio_uaccess_write_cactive(struct kvm_vcpu *vcpu,
+int vgic_mmio_uaccess_write_cactive(struct kvm_vcpu *vcpu,
 				     gpa_t addr, unsigned int len,
 				     unsigned long val)
 {
 	__vgic_mmio_write_cactive(vcpu, addr, len, val);
+	return 0;
 }
 
 static void __vgic_mmio_write_sactive(struct kvm_vcpu *vcpu,
@@ -437,11 +445,12 @@ void vgic_mmio_write_sactive(struct kvm_vcpu *vcpu,
 	mutex_unlock(&vcpu->kvm->lock);
 }
 
-void vgic_mmio_uaccess_write_sactive(struct kvm_vcpu *vcpu,
+int vgic_mmio_uaccess_write_sactive(struct kvm_vcpu *vcpu,
 				     gpa_t addr, unsigned int len,
 				     unsigned long val)
 {
 	__vgic_mmio_write_sactive(vcpu, addr, len, val);
+	return 0;
 }
 
 unsigned long vgic_mmio_read_priority(struct kvm_vcpu *vcpu,
@@ -773,10 +782,9 @@ static int vgic_uaccess_write(struct kvm_vcpu *vcpu, struct kvm_io_device *dev,
 
 	r_vcpu = iodev->redist_vcpu ? iodev->redist_vcpu : vcpu;
 	if (region->uaccess_write)
-		region->uaccess_write(r_vcpu, addr, sizeof(u32), *val);
-	else
-		region->write(r_vcpu, addr, sizeof(u32), *val);
+		return region->uaccess_write(r_vcpu, addr, sizeof(u32), *val);
 
+	region->write(r_vcpu, addr, sizeof(u32), *val);
 	return 0;
 }
 
