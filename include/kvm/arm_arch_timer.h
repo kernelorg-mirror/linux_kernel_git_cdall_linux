@@ -27,6 +27,8 @@
 enum kvm_arch_timers {
 	TIMER_VTIMER,
 	TIMER_PTIMER,
+	TIMER_HVTIMER,
+	TIMER_HPTIMER,
 	NR_KVM_TIMERS
 };
 
@@ -46,14 +48,23 @@ struct arch_timer_context {
 	/* Emulated Timer (may be unused) */
 	struct hrtimer			hrtimer;
 
+	/*
+	 * We have multiple paths which can save/restore the timer state onto
+	 * the hardware, so we need some way of keeping track of where the
+	 * latest state is.
+	 */
+	bool				loaded;
+
 	/* Duplicated state from arch_timer.c for convenience */
 	u32				host_timer_irq;
 	u32				host_timer_irq_flags;
 };
 
-enum loaded_timer_state {
-	TIMER_NOT_LOADED,
-	TIMER_EL1_LOADED,
+struct timer_map {
+	struct arch_timer_context *direct_vtimer;
+	struct arch_timer_context *direct_ptimer;
+	struct arch_timer_context *emul_vtimer;
+	struct arch_timer_context *emul_ptimer;
 };
 
 struct arch_timer_cpu {
@@ -64,14 +75,6 @@ struct arch_timer_cpu {
 
 	/* Is the timer enabled */
 	bool			enabled;
-
-	/*
-	 * We have multiple paths which can save/restore the timer state
-	 * onto the hardware, and for nested virt the EL1 hardware timers can
-	 * contain state from either the VM's EL1 timers or EL2 timers, so we
-	 * need some way of keeping track of where the latest state is.
-	 */
-	enum loaded_timer_state loaded;
 };
 
 int kvm_timer_hyp_init(bool);
@@ -107,6 +110,8 @@ bool kvm_arch_timer_get_input_level(int vintid);
 #define vcpu_timer(v)	(&(v)->arch.timer_cpu)
 #define vcpu_vtimer(v)	(&(v)->arch.timer_cpu.timers[TIMER_VTIMER])
 #define vcpu_ptimer(v)	(&(v)->arch.timer_cpu.timers[TIMER_PTIMER])
+#define vcpu_hvtimer(v)	(&(v)->arch.timer_cpu.timers[TIMER_HVTIMER])
+#define vcpu_hptimer(v)	(&(v)->arch.timer_cpu.timers[TIMER_HPTIMER])
 
 #define arch_timer_ctx_index(ctx)	((ctx) - vcpu_vtimer((ctx)->vcpu))
 
