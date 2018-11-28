@@ -64,7 +64,6 @@ struct kvm_vmid {
 
 struct kvm_s2_mmu {
 	struct kvm_vmid vmid;
-	struct kvm_vmid el2_vmid;
 
 	/* Stage-2 page table */
 	pgd_t *pgd;

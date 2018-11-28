@@ -156,8 +156,7 @@ int create_hyp_exec_mappings(phys_addr_t phys_addr, size_t size,
 void free_hyp_pgds(void);
 
 void stage2_unmap_vm(struct kvm *kvm);
-int kvm_alloc_stage2_pgd(struct kvm *kvm);
-int __kvm_alloc_stage2_pgd(struct kvm_s2_mmu *mmu);
+int kvm_alloc_stage2_pgd(struct kvm_s2_mmu *mmu);
 void kvm_free_stage2_pgd(struct kvm *kvm);
 void __kvm_free_stage2_pgd(struct kvm *kvm, struct kvm_s2_mmu *mmu);
 int kvm_phys_addr_ioremap(struct kvm *kvm, phys_addr_t guest_ipa,
@@ -541,7 +540,9 @@ struct kvm_s2_trans {
 };
 
 struct kvm_nested_s2_mmu *get_nested_mmu(struct kvm_vcpu *vcpu, u64 vttbr);
-struct kvm_s2_mmu *vcpu_get_active_s2_mmu(struct kvm_vcpu *vcpu);
+struct kvm_s2_mmu *lookup_s2_mmu(struct kvm *kvm, u64 vttbr, u64 hcr);
+void kvm_vcpu_load_hw_mmu(struct kvm_vcpu *vcpu);
+void kvm_vcpu_put_hw_mmu(struct kvm_vcpu *vcpu);
 void update_nested_s2_mmu(struct kvm_vcpu *vcpu);
 int kvm_walk_nested_s2(struct kvm_vcpu *vcpu, phys_addr_t gipa,
 		       struct kvm_s2_trans *result);
@@ -563,16 +564,6 @@ static inline u64 get_vmid(u64 vttbr)
 {
 	return (vttbr & VTTBR_VMID_MASK(kvm_get_vmid_bits())) >>
 	       VTTBR_VMID_SHIFT;
-}
-
-static inline struct kvm_vmid *vcpu_get_active_vmid(struct kvm_vcpu *vcpu)
-{
-	struct kvm_s2_mmu *mmu = vcpu_get_active_s2_mmu(vcpu);
-
-	if (unlikely(is_hyp_ctxt(vcpu)))
-		return &mmu->el2_vmid;
-	else
-		return &mmu->vmid;
 }
 
 #endif /* __ASSEMBLY__ */

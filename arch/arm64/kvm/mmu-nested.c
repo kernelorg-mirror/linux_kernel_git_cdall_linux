@@ -301,88 +301,92 @@ int kvm_s2_handle_perm_fault(struct kvm_vcpu *vcpu, phys_addr_t fault_ipa,
 	return 0;
 }
 
-static struct kvm_nested_s2_mmu *lookup_nested_mmu(struct kvm_vcpu *vcpu,
-						   u64 vttbr)
+/* Must be called with kvm->lock held */
+struct kvm_s2_mmu *lookup_s2_mmu(struct kvm *kvm, u64 vttbr, u64 hcr)
 {
-	struct kvm_nested_s2_mmu *mmu;
-	u64 virtual_vmid;
-	u64 target_vmid = get_vmid(vttbr);
-	struct list_head *nested_mmu_list = &vcpu->kvm->arch.nested_mmu_list;
+	bool nested_stage2_enabled = hcr & HCR_VM;
+	int i;
+
+	/* Don't consider the CnP bit for the vttbr match */
+	vttbr = vttbr & ~1UL;
 
 	/* Search a mmu in the list using the virtual VMID as a key */
-	list_for_each_entry_rcu(mmu, nested_mmu_list, list) {
-		virtual_vmid = get_vmid(mmu->virtual_vttbr);
-		if (target_vmid == virtual_vmid)
+	for (i = 0; i < kvm->arch.nested_mmus_size; i++) {
+		struct kvm_s2_mmu *mmu = &kvm->arch.nested_mmus[i];
+
+		if (mmu->usage_count < 0)
+			continue;
+
+		if (nested_stage2_enabled &&
+		    mmu->nested_stage2_enabled &&
+		    vttbr == (mmu->vttbr & ~1UL))
+			return mmu;
+
+		if (!nested_stage2_enabled &&
+		    !mmu->nested_stage2_enabled &&
+		    get_vmid(vttbr) == get_vmid(mmu->vttbr))
 			return mmu;
 	}
 	return NULL;
 }
 
-/**
- * create_nested_mmu - create mmu for the given virtual VMID
- *
- * Called from setup_s2_mmu before entering the nested VM to ensure the shadow
- * stage 2 page table is allocated and it is valid to use.
- */
-static struct kvm_nested_s2_mmu *create_nested_mmu(struct kvm_vcpu *vcpu,
-						   u64 vttbr)
-{
-	struct kvm_nested_s2_mmu *nested_mmu, *tmp_mmu;
-	struct list_head *nested_mmu_list = &vcpu->kvm->arch.nested_mmu_list;
-	bool need_free = false;
-	int ret;
-
-	nested_mmu = kzalloc(sizeof(struct kvm_nested_s2_mmu), GFP_KERNEL);
-	if (!nested_mmu)
-		return NULL;
-
-	ret = __kvm_alloc_stage2_pgd(&nested_mmu->mmu);
-	if (ret) {
-		kfree(nested_mmu);
-		return NULL;
-	}
-
-	spin_lock(&vcpu->kvm->mmu_lock);
-	tmp_mmu = lookup_nested_mmu(vcpu, vttbr);
-	if (!tmp_mmu) {
-		list_add_rcu(&nested_mmu->list, nested_mmu_list);
-	} else {
-		/*
-		 * Somebody already put a new nested_mmu for this virtual VMID
-		 * to the list behind our back.
-		 */
-		need_free = true;
-	}
-	spin_unlock(&vcpu->kvm->mmu_lock);
-
-	if (need_free) {
-		__kvm_free_stage2_pgd(vcpu->kvm, &nested_mmu->mmu);
-		kfree(nested_mmu);
-		nested_mmu = tmp_mmu;
-	}
-
-	/* The virtual VMID will be used as a key when searching a mmu */
-	nested_mmu->virtual_vttbr = vttbr;
-
-	return nested_mmu;
-}
-
 static struct kvm_s2_mmu *get_s2_mmu_nested(struct kvm_vcpu *vcpu)
 {
-	u64 vttbr = __vcpu_sys_reg(vcpu, VTTBR_EL2);
-	struct kvm_nested_s2_mmu *nested_mmu;
+	struct kvm *kvm = vcpu->kvm;
+	u64 vttbr = vcpu_read_sys_reg(vcpu, VTTBR_EL2);
+	u64 hcr= vcpu_read_sys_reg(vcpu, HCR_EL2);
+	struct kvm_s2_mmu *s2_mmu;
+	int i;
 
-	nested_mmu = lookup_nested_mmu(vcpu, vttbr);
-	if (!nested_mmu)
-		nested_mmu = create_nested_mmu(vcpu, vttbr);
+	s2_mmu = lookup_s2_mmu(kvm, vttbr, hcr);
+	if (s2_mmu)
+		goto out;
 
-	return &nested_mmu->mmu;
+	for (i = 0; i < kvm->arch.nested_mmus_size; i++) {
+		s2_mmu = &kvm->arch.nested_mmus[i];
+
+		if (s2_mmu->usage_count <= 0)
+			break;
+	}
+	BUG_ON(s2_mmu->usage_count > 0); /* We have struct MMUs to spare */
+
+	if (s2_mmu->usage_count == 0) {
+		/* Clear the old state */
+		kvm_unmap_stage2_range(kvm, s2_mmu, 0, KVM_PHYS_SIZE);
+		if (s2_mmu->vmid.vmid_gen)
+			kvm_call_hyp(__kvm_tlb_flush_vmid, kvm_get_vttbr(s2_mmu));
+	} else {
+		s2_mmu->usage_count = 0;
+	}
+
+	/*
+	 * The virtual VMID (modulo CnP) will be used as a key when matching
+	 * an existing kvm_s2_mmu.
+	 */
+	s2_mmu->vttbr = vttbr & ~1UL;
+	s2_mmu->nested_stage2_enabled = hcr & HCR_VM;
+
+out:
+	s2_mmu->usage_count++;
+	return s2_mmu;
 }
 
-struct kvm_s2_mmu *vcpu_get_active_s2_mmu(struct kvm_vcpu *vcpu)
+void kvm_vcpu_load_hw_mmu(struct kvm_vcpu *vcpu)
 {
-	if (is_hyp_ctxt(vcpu) || !vcpu_nested_stage2_enabled(vcpu))
-		return &vcpu->kvm->arch.mmu;
+	spin_lock(&vcpu->kvm->mmu_lock);
+	if (is_hyp_ctxt(vcpu))
+		vcpu->arch.hw_mmu = &vcpu->kvm->arch.mmu;
+	else
+		vcpu->arch.hw_mmu = get_s2_mmu_nested(vcpu);
+	spin_unlock(&vcpu->kvm->mmu_lock);
+}
 
-	return get_s2_mmu_nested(vcpu);
+void kvm_vcpu_put_hw_mmu(struct kvm_vcpu *vcpu)
+{
+	spin_lock(&vcpu->kvm->mmu_lock);
+	if (vcpu->arch.hw_mmu != &vcpu->kvm->arch.mmu) {
+		vcpu->arch.hw_mmu->usage_count--;
+		vcpu->arch.hw_mmu = NULL;
+	}
+	spin_unlock(&vcpu->kvm->mmu_lock);
 }
