@@ -22,6 +22,7 @@
 #include <linux/nospec.h>
 
 #include <asm/kvm_hyp.h>
+#include <asm/kvm_nested.h>
 
 #include "vgic.h"
 
@@ -986,3 +987,12 @@ bool kvm_vgic_map_is_active(struct kvm_vcpu *vcpu, unsigned int vintid)
 	return map_is_active;
 }
 
+bool vgic_state_is_nested(struct kvm_vcpu *vcpu)
+{
+	bool imo = __vcpu_sys_reg(vcpu, HCR_EL2) & HCR_IMO;
+	bool fmo = __vcpu_sys_reg(vcpu, HCR_EL2) & HCR_FMO;
+
+	WARN(imo != fmo, "Separate virtual IRQ/FIQ settings not supported\n");
+
+	return nested_virt_in_use(vcpu) && imo && fmo && !is_hyp_ctxt(vcpu);
+}
