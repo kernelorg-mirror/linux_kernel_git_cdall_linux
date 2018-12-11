@@ -902,6 +902,7 @@ int kvm_alloc_stage2_pgd(struct kvm *kvm)
 		return -ENOMEM;
 
 	kvm->arch.pgd = pgd;
+	kvm->arch.pgd_phys = virt_to_phys(pgd);
 	return 0;
 }
 
