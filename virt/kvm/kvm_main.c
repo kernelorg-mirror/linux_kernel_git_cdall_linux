@@ -289,57 +289,57 @@ void kvm_reload_remote_mmus(struct kvm *kvm)
 	kvm_make_all_cpus_request(kvm, KVM_REQ_MMU_RELOAD);
 }
 
-#ifdef KVM_ARCH_WANT_MMU_MEMORY_CACHE
-int mmu_topup_memory_cache(struct kvm_mmu_memory_cache *cache,
-			   struct kmem_cache *base_cache, int min)
+#ifdef KVM_ARCH_WANT_MMU_MEMCACHE
+int kvm_mmu_topup_memcache(struct kvm_mmu_memcache *mc,
+			   struct kmem_cache *kmem_cache, int min)
 {
 	void *obj;
 
-	if (cache->nobjs >= min)
+	if (mc->nobjs >= min)
 		return 0;
-	while (cache->nobjs < ARRAY_SIZE(cache->objects)) {
-		obj = kmem_cache_alloc(base_cache, GFP_PGTABLE_USER);
+	while (mc->nobjs < ARRAY_SIZE(mc->objects)) {
+		obj = kmem_cache_alloc(kmem_cache, GFP_PGTABLE_USER);
 		if (!obj)
-			return cache->nobjs >= min ? 0 : -ENOMEM;
-		cache->objects[cache->nobjs++] = obj;
+			return mc->nobjs >= min ? 0 : -ENOMEM;
+		mc->objects[mc->nobjs++] = obj;
 	}
 	return 0;
 }
 
-int mmu_memory_cache_free_objects(struct kvm_mmu_memory_cache *cache)
+int kvm_mmu_memcache_free_objects(struct kvm_mmu_memcache *mc)
 {
-	return cache->nobjs;
+	return mc->nobjs;
 }
 
-void mmu_free_memory_cache(struct kvm_mmu_memory_cache *mc,
-			   struct kmem_cache *cache)
+void kvm_mmu_free_memcache(struct kvm_mmu_memcache *mc,
+			   struct kmem_cache *kmem_cache)
 {
 	while (mc->nobjs)
-		kmem_cache_free(cache, mc->objects[--mc->nobjs]);
+		kmem_cache_free(kmem_cache, mc->objects[--mc->nobjs]);
 }
 
-int mmu_topup_memory_cache_page(struct kvm_mmu_memory_cache *cache, int min)
+int kvm_mmu_topup_memcache_page(struct kvm_mmu_memcache *mc, int min)
 {
 	void *page;
 
-	if (cache->nobjs >= min)
+	if (mc->nobjs >= min)
 		return 0;
-	while (cache->nobjs < ARRAY_SIZE(cache->objects)) {
+	while (mc->nobjs < ARRAY_SIZE(mc->objects)) {
 		page = (void *)__get_free_page(GFP_PGTABLE_USER);
 		if (!page)
-			return cache->nobjs >= min ? 0 : -ENOMEM;
-		cache->objects[cache->nobjs++] = page;
+			return mc->nobjs >= min ? 0 : -ENOMEM;
+		mc->objects[mc->nobjs++] = page;
 	}
 	return 0;
 }
 
-void mmu_free_memory_cache_page(struct kvm_mmu_memory_cache *mc)
+void kvm_mmu_free_memcache_page(struct kvm_mmu_memcache *mc)
 {
 	while (mc->nobjs)
 		free_page((unsigned long)mc->objects[--mc->nobjs]);
 }
 
-void *mmu_memory_cache_alloc(struct kvm_mmu_memory_cache *mc)
+void *kvm_mmu_memcache_alloc(struct kvm_mmu_memcache *mc)
 {
 	void *p;
 
